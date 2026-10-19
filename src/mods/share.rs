@@ -38,7 +38,7 @@ pub fn manifest_share() -> Value {
 fn gray_home() -> PathBuf {
     std::env::var_os("GRAY_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".gray")))
+        .or_else(|| std::env::home_dir().map(|h| h.join(".gray")))
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
@@ -51,7 +51,7 @@ fn exports_dir() -> PathBuf {
 }
 
 fn expand_tilde(p: &str) -> PathBuf {
-    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+    if let Some(home) = std::env::home_dir() {
         if p == "~" {
             return home;
         }
@@ -115,7 +115,10 @@ fn find_transcript_in(dir: &Path, sid: Option<&str>) -> Result<PathBuf, String> 
     }
     let matches = transcript_matches(dir, sid);
     match matches.len() {
-        0 => Err(format!("no session matching '{sid}' under {}", dir.display())),
+        0 => Err(format!(
+            "no session matching '{sid}' under {}",
+            dir.display()
+        )),
         1 => Ok(matches.into_iter().next().unwrap()),
         n => Err(format!(
             "'{sid}' is ambiguous — {n} matches ({})",
@@ -236,7 +239,11 @@ fn render(path: &Path) -> Result<(String, String), String> {
         let role = msg.get("role").and_then(Value::as_str).unwrap_or("?");
         let ts = entry.get("timestamp").and_then(Value::as_u64).unwrap_or(0);
         let clock = fmt_ts(ts);
-        let clock = clock.rsplit_once(' ').map(|(_, t)| t).unwrap_or("").to_string();
+        let clock = clock
+            .rsplit_once(' ')
+            .map(|(_, t)| t)
+            .unwrap_or("")
+            .to_string();
         let mut blocks = String::new();
         if let Some(content) = msg.get("content").and_then(Value::as_array) {
             for b in content {
@@ -319,8 +326,7 @@ fn do_share(session: Option<&str>, out: Option<&str>) -> Result<String, String> 
     if let Some(d) = dest.parent() {
         std::fs::create_dir_all(d).map_err(|e| format!("mkdir {}: {e}", d.display()))?;
     }
-    std::fs::write(&dest, html.as_bytes())
-        .map_err(|e| format!("write {}: {e}", dest.display()))?;
+    std::fs::write(&dest, html.as_bytes()).map_err(|e| format!("write {}: {e}", dest.display()))?;
     let kb = html.len().div_ceil(1024);
     Ok(format!("wrote {} ({kb} KB)", dest.display()))
 }
@@ -354,11 +360,7 @@ fn call_tool(name: &str, args: &Value, session: Option<&Value>) -> Result<String
             let sid = args
                 .get("session")
                 .and_then(Value::as_str)
-                .or_else(|| {
-                    session
-                        .and_then(|s| s.get("id"))
-                        .and_then(Value::as_str)
-                });
+                .or_else(|| session.and_then(|s| s.get("id")).and_then(Value::as_str));
             do_share(sid, args.get("out").and_then(Value::as_str))
         }
         other => Err(format!("unknown tool: {other}")),
@@ -375,9 +377,7 @@ fn run_command(argv: &[&str], session: Option<&Value>) -> String {
             Err(e) => format!("share: {e}"),
         },
         None => {
-            let sid = session
-                .and_then(|s| s.get("id"))
-                .and_then(Value::as_str);
+            let sid = session.and_then(|s| s.get("id")).and_then(Value::as_str);
             match do_share(sid, None) {
                 Ok(m) => m,
                 Err(e) => format!("share: {e}"),
@@ -507,7 +507,10 @@ mod tests {
         fake_transcript(&dir, "abc111");
         fake_transcript(&dir, "abc222");
         assert_eq!(
-            find_transcript_in(&dir, Some("abc111")).unwrap().file_name().unwrap(),
+            find_transcript_in(&dir, Some("abc111"))
+                .unwrap()
+                .file_name()
+                .unwrap(),
             "abc111.jsonl"
         );
         assert!(find_transcript_in(&dir, Some("abc")).is_err()); // ambiguous

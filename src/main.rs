@@ -52,7 +52,10 @@ fn manifest() -> Value {
         if let Some(ts) = m.get("tools").and_then(Value::as_array) {
             for t in ts {
                 let name = t.get("name").and_then(Value::as_str).unwrap_or("");
-                if !tools.iter().any(|x| x.get("name").and_then(Value::as_str) == Some(name)) {
+                if !tools
+                    .iter()
+                    .any(|x| x.get("name").and_then(Value::as_str) == Some(name))
+                {
                     tools.push(t.clone());
                 }
             }
@@ -135,10 +138,10 @@ fn context_build(req: &Value, host: &Host) -> Value {
     let mut replaced: Option<Value> = None;
     let link_h = host.handoff_link();
     let link_s = host.summarize_link();
-    let steps: [&dyn Fn(&Value) -> (Option<Value>, bool); 2] = [
-        &|r| handoff::handle_handoff(r, Some(&link_h)),
-        &|r| summarize::handle_summarize(r, Some(&link_s)),
-    ];
+    let steps: [&dyn Fn(&Value) -> (Option<Value>, bool); 2] =
+        [&|r| handoff::handle_handoff(r, Some(&link_h)), &|r| {
+            summarize::handle_summarize(r, Some(&link_s))
+        }];
     for step in steps {
         if let (Some(reply), _) = step(&req)
             && let Some(msgs) = reply.pointer("/result/messages")
@@ -199,7 +202,12 @@ fn handle(req: &Value, host: &Host) -> (Option<Value>, bool) {
         "command/run" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             let (reply, _) = match name {
-                "/session" => return (Some(json!({ "id": id, "result": { "text": session_command() } })), false),
+                "/session" => {
+                    return (
+                        Some(json!({ "id": id, "result": { "text": session_command() } })),
+                        false,
+                    );
+                }
                 "/bookmark" | "/bookmarks" => call_bookmark(req, host),
                 "/name" => call_session_name(req, host),
                 "/share" => share::handle_share(req),
@@ -241,7 +249,9 @@ fn main() -> std::io::Result<()> {
         let stdin = std::io::stdin();
         for line in stdin.lock().lines() {
             let Ok(line) = line else { break };
-            let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+            let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
             if let Some(id) = v.get("id").and_then(Value::as_str)
                 && v.get("method").is_none()
                 && let Some(tx) = reader_pending.lock().expect("pending").remove(id)

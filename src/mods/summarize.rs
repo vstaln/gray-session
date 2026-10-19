@@ -59,10 +59,7 @@ fn host_run(link: Option<&HostLink>, prompt: &str) -> Result<String, String> {
     };
     let id = next_id(&link.counter);
     let (tx, rx) = mpsc::channel();
-    link.pending
-        .lock()
-        .expect("pending")
-        .insert(id.clone(), tx);
+    link.pending.lock().expect("pending").insert(id.clone(), tx);
     let req = json!({"id": id, "method": "host/run", "params": {"prompt": prompt}});
     {
         let mut o = link.out.lock().expect("stdout");
@@ -118,7 +115,10 @@ fn truncate_for_summary(text: &str, max_chars: usize) -> String {
         return text.to_string();
     }
     let kept: String = text.chars().take(max_chars).collect();
-    format!("{kept}\n\n[... {} more characters truncated]", n - max_chars)
+    format!(
+        "{kept}\n\n[... {} more characters truncated]",
+        n - max_chars
+    )
 }
 
 /// `[Message]` values → `[Role]: ...` text; pi's summarize.ts emits
@@ -205,7 +205,7 @@ fn summary_prompt(conversation_text: &str, focus: &str) -> String {
 fn state_dir() -> PathBuf {
     let home = std::env::var_os("GRAY_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".gray")))
+        .or_else(|| std::env::home_dir().map(|h| h.join(".gray")))
         .unwrap_or_else(|| PathBuf::from("."));
     home.join("summarize")
 }
@@ -235,7 +235,10 @@ fn cache_write(sid: &str, text: &str) {
         while start < bytes.len() && !text.is_char_boundary(start) {
             start += 1;
         }
-        format!("[... earlier conversation truncated ...]\n\n{}", &text[start..])
+        format!(
+            "[... earlier conversation truncated ...]\n\n{}",
+            &text[start..]
+        )
     } else {
         text.to_string()
     };
@@ -363,9 +366,12 @@ mod tests {
     use super::*;
 
     fn call(method: &str, params: Value) -> Value {
-        handle_summarize(&json!({ "id": 1, "method": method, "params": params }), None)
-            .0
-            .unwrap()
+        handle_summarize(
+            &json!({ "id": 1, "method": method, "params": params }),
+            None,
+        )
+        .0
+        .unwrap()
     }
 
     #[test]
@@ -430,7 +436,8 @@ mod tests {
 
     #[test]
     fn shutdown_replies_then_exits() {
-        let (reply, exit) = handle_summarize(&json!({ "id": 2, "method": "plugin/shutdown" }), None);
+        let (reply, exit) =
+            handle_summarize(&json!({ "id": 2, "method": "plugin/shutdown" }), None);
         assert!(reply.is_some() && exit);
         let (reply, exit) = handle_summarize(&json!({ "method": "plugin/shutdown" }), None);
         assert!(reply.is_none() && exit);

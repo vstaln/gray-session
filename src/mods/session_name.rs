@@ -39,7 +39,7 @@ pub fn manifest_session_name() -> Value {
 fn names_path() -> PathBuf {
     let home = std::env::var_os("GRAY_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".gray")))
+        .or_else(|| std::env::home_dir().map(|h| h.join(".gray")))
         .unwrap_or_else(|| PathBuf::from("."));
     home.join("session-name").join("names.json")
 }
@@ -155,7 +155,10 @@ fn prompt_context(params: &Value) -> Value {
 
 /// One request → `Some(reply)`, or `None` for notifications. The bool asks
 /// the loop to exit after writing the reply. `ask` is the host/ask channel.
-pub fn handle_session_name(req: &Value, ask: &mut dyn FnMut(&[Value]) -> Option<Value>) -> (Option<Value>, bool) {
+pub fn handle_session_name(
+    req: &Value,
+    ask: &mut dyn FnMut(&[Value]) -> Option<Value>,
+) -> (Option<Value>, bool) {
     let id = req.get("id").cloned();
     let method = req.get("method").and_then(Value::as_str).unwrap_or("");
     let params = req.get("params").cloned().unwrap_or(Value::Null);
@@ -233,7 +236,9 @@ fn main_session_name() -> std::io::Result<()> {
         let stdin = std::io::stdin();
         for line in stdin.lock().lines() {
             let Ok(line) = line else { break };
-            let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+            let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                continue;
+            };
             if let Some(id) = v.get("id").and_then(Value::as_str)
                 && v.get("method").is_none()
                 && let Some(tx) = reader_pending.lock().expect("pending").remove(id)
@@ -293,7 +298,8 @@ mod tests {
     fn with_home(body: impl FnOnce(&std::path::Path)) {
         let _g = LOCK.lock().unwrap();
         let n = CTR.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let dir = std::env::temp_dir().join(format!("gray-session-name-test-{}-{n}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("gray-session-name-test-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         unsafe { std::env::set_var("GRAY_HOME", &dir) };
@@ -316,9 +322,15 @@ mod tests {
         with_home(|home| {
             let sess = json!({"id": "s-42", "cwd": "/tmp/x"});
             // Nothing set yet.
-            let r = call("command/run", json!({"name": "/name", "argv": [], "session": sess}));
+            let r = call(
+                "command/run",
+                json!({"name": "/name", "argv": [], "session": sess}),
+            );
             assert_eq!(r["result"]["text"], "No session name set");
-            assert_eq!(call("prompt/context", json!({"session": sess}))["result"], json!({}));
+            assert_eq!(
+                call("prompt/context", json!({"session": sess}))["result"],
+                json!({})
+            );
 
             // Set it.
             let r = call(
@@ -326,7 +338,10 @@ mod tests {
                 json!({"name": "/name", "argv": ["deep", "dive"], "session": sess}),
             );
             assert_eq!(r["result"]["text"], "Session named: deep dive");
-            let r = call("command/run", json!({"name": "/name", "argv": [], "session": sess}));
+            let r = call(
+                "command/run",
+                json!({"name": "/name", "argv": [], "session": sess}),
+            );
             assert_eq!(r["result"]["text"], "Session: deep dive");
 
             // prompt/context surfaces it.
@@ -340,7 +355,10 @@ mod tests {
 
             // A different session sees nothing.
             let other = json!({"id": "s-99", "cwd": "/tmp/x"});
-            assert_eq!(call("prompt/context", json!({"session": other}))["result"], json!({}));
+            assert_eq!(
+                call("prompt/context", json!({"session": other}))["result"],
+                json!({})
+            );
         });
     }
 
@@ -388,7 +406,12 @@ mod tests {
                 "command/run",
                 json!({"name": "/name", "argv": ["set"], "session": sess}),
             );
-            assert!(r["result"]["text"].as_str().unwrap().contains("no answer channel"));
+            assert!(
+                r["result"]["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains("no answer channel")
+            );
             let mut empty = |_: &[Value]| -> Option<Value> {
                 Some(json!({"answers": {NAME_QID: {"answers": [], "notes": ""}}}))
             };
@@ -417,16 +440,29 @@ mod tests {
     #[test]
     fn empty_session_id_is_safe() {
         with_home(|_| {
-            let r = call("command/run", json!({"name": "/name", "argv": ["x"], "session": {}}));
-            assert!(r["result"]["text"].as_str().unwrap().contains("no session id"));
-            assert_eq!(call("prompt/context", json!({"session": {}}))["result"], json!({}));
+            let r = call(
+                "command/run",
+                json!({"name": "/name", "argv": ["x"], "session": {}}),
+            );
+            assert!(
+                r["result"]["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains("no session id")
+            );
+            assert_eq!(
+                call("prompt/context", json!({"session": {}}))["result"],
+                json!({})
+            );
         });
     }
 
     #[test]
     fn shutdown_replies_then_exits() {
-        let (reply, exit) =
-            handle_session_name(&json!({ "id": 2, "method": "plugin/shutdown" }), &mut no_ask());
+        let (reply, exit) = handle_session_name(
+            &json!({ "id": 2, "method": "plugin/shutdown" }),
+            &mut no_ask(),
+        );
         assert!(reply.is_some() && exit);
     }
 }
