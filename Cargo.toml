@@ -1,6 +1,6 @@
 [package]
 name = "gray-session"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
 description = "Merged session-utilities plugin for the gray agent harness: bookmark, session-name, share, handoff, summarize in one sidecar."
 license = "MIT"
