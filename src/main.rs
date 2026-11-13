@@ -69,6 +69,15 @@ fn manifest() -> Value {
         "commands": [
             "/session", "/bookmark", "/bookmarks", "/name", "/share", "/handoff", "/summarize",
         ],
+        "command_descriptions": {
+            "/session": "list the session modules",
+            "/bookmark": "mark this point in the session",
+            "/bookmarks": "list session bookmarks",
+            "/name": "name or rename this session",
+            "/share": "export a session to an HTML file",
+            "/handoff": "write a prompt to continue in a new session",
+            "/summarize": "summarize the conversation so far",
+        },
         "hooks": ["prompt/context", "context/build"],
         "capabilities": ["host.ask", "host.turn"],
     })
