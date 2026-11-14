@@ -43,7 +43,7 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-musl'
         env:
           CARGO_BUILD_JOBS: '4'
-        run: cargo test --locked
+        run: cargo test --locked -- --test-threads=1
       - name: Build
         env:
           CARGO_BUILD_JOBS: '4'
