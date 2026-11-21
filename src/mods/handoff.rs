@@ -296,10 +296,8 @@ fn run_command(argv: &[&str], sid: &str, link: Option<&HostLink>) -> String {
     let goal = argv.join(" ");
     let goal = goal.trim();
     if goal.is_empty() {
-        return format!(
-            "usage: /handoff <goal for new thread>\n\
-             Generates a self-contained prompt from this conversation. Start a fresh `gray` session and paste it."
-        );
+        return "usage: /handoff <goal for new thread>\n\
+             Generates a self-contained prompt from this conversation. Start a fresh `gray` session and paste it.".to_string();
     }
     let Some(history) = cache_read(sid) else {
         return "no conversation cached yet — chat a bit first, then /handoff".into();
