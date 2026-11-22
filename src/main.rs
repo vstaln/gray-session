@@ -34,6 +34,9 @@ mod share;
 #[path = "mods/summarize.rs"]
 mod summarize;
 
+#[cfg(test)]
+static HOME_LOCK: Mutex<()> = Mutex::new(());
+
 /// Internal cap on `host/ask` waits — under the host's 330s outer TTL
 /// (same as gray-bookmark / gray-session-name).
 const ASK_TTL: Duration = Duration::from_secs(300);

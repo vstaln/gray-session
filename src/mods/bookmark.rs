@@ -443,12 +443,10 @@ mod tests {
         }
     }
 
-    /// Serialized: GRAY_HOME is process-global and tests share the process.
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     static CTR: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
     fn with_home(body: impl FnOnce(&std::path::Path)) {
-        let _g = LOCK.lock().unwrap();
+        let _g = crate::HOME_LOCK.lock().unwrap();
         let n = CTR.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let dir =
             std::env::temp_dir().join(format!("gray-bookmark-test-{}-{n}", std::process::id()));
