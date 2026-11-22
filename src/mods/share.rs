@@ -96,12 +96,11 @@ fn find_transcript_in(dir: &Path, sid: Option<&str>) -> Result<PathBuf, String> 
         if let Ok(rd) = std::fs::read_dir(dir) {
             for e in rd.flatten() {
                 let p = e.path();
-                if p.extension().is_some_and(|x| x == "jsonl") {
-                    if let Ok(m) = e.metadata().and_then(|m| m.modified()) {
-                        if best.as_ref().is_none_or(|(_, t)| m > *t) {
-                            best = Some((p, m));
-                        }
-                    }
+                if p.extension().is_some_and(|x| x == "jsonl")
+                    && let Ok(m) = e.metadata().and_then(|m| m.modified())
+                    && best.as_ref().is_none_or(|(_, t)| m > *t)
+                {
+                    best = Some((p, m));
                 }
             }
         }

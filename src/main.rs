@@ -23,14 +23,19 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+#[allow(dead_code)]
 #[path = "mods/bookmark.rs"]
 mod bookmark;
+#[allow(dead_code)]
 #[path = "mods/handoff.rs"]
 mod handoff;
+#[allow(dead_code)]
 #[path = "mods/session_name.rs"]
 mod session_name;
+#[allow(dead_code)]
 #[path = "mods/share.rs"]
 mod share;
+#[allow(dead_code)]
 #[path = "mods/summarize.rs"]
 mod summarize;
 
@@ -150,10 +155,10 @@ fn context_build(req: &Value, host: &Host) -> Value {
     let mut replaced: Option<Value> = None;
     let link_h = host.handoff_link();
     let link_s = host.summarize_link();
-    let steps: [&dyn Fn(&Value) -> (Option<Value>, bool); 2] =
-        [&|r| handoff::handle_handoff(r, Some(&link_h)), &|r| {
-            summarize::handle_summarize(r, Some(&link_s))
-        }];
+    type Step<'a> = &'a dyn Fn(&Value) -> (Option<Value>, bool);
+    let steps: [Step; 2] = [&|r| handoff::handle_handoff(r, Some(&link_h)), &|r| {
+        summarize::handle_summarize(r, Some(&link_s))
+    }];
     for step in steps {
         if let (Some(reply), _) = step(&req)
             && let Some(msgs) = reply.pointer("/result/messages")
