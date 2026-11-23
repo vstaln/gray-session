@@ -23,6 +23,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+mod parts;
+
 #[allow(dead_code)]
 #[path = "mods/bookmark.rs"]
 mod bookmark;
@@ -48,15 +50,53 @@ const ASK_TTL: Duration = Duration::from_secs(300);
 
 type Pending = Arc<Mutex<HashMap<String, mpsc::Sender<Value>>>>;
 
-fn manifest() -> Value {
+const PARTS: &[parts::Part] = &[
+    parts::Part {
+        name: "bookmark",
+        default: true,
+        description: "named session markers plus the bookmark tool",
+    },
+    parts::Part {
+        name: "session-name",
+        default: true,
+        description: "friendly session names surfaced in the prompt",
+    },
+    parts::Part {
+        name: "share",
+        default: true,
+        description: "export a transcript to a self-contained HTML page",
+    },
+    parts::Part {
+        name: "handoff",
+        default: true,
+        description: "write a prompt for continuing in a fresh session",
+    },
+    parts::Part {
+        name: "summarize",
+        default: true,
+        description: "summarize the conversation so far",
+    },
+];
+
+fn manifest(parts: &parts::Parts) -> Value {
     let mut tools: Vec<Value> = Vec::new();
-    for m in [
-        bookmark::manifest_bookmark(),
-        session_name::manifest_session_name(),
-        share::manifest_share(),
-        handoff::manifest_handoff(),
-        summarize::manifest_summarize(),
-    ] {
+    let mut sources = Vec::new();
+    if parts.on("bookmark") {
+        sources.push(bookmark::manifest_bookmark());
+    }
+    if parts.on("session-name") {
+        sources.push(session_name::manifest_session_name());
+    }
+    if parts.on("share") {
+        sources.push(share::manifest_share());
+    }
+    if parts.on("handoff") {
+        sources.push(handoff::manifest_handoff());
+    }
+    if parts.on("summarize") {
+        sources.push(summarize::manifest_summarize());
+    }
+    for m in sources {
         if let Some(ts) = m.get("tools").and_then(Value::as_array) {
             for t in ts {
                 let name = t.get("name").and_then(Value::as_str).unwrap_or("");
@@ -69,25 +109,60 @@ fn manifest() -> Value {
             }
         }
     }
+    let mut commands: Vec<&str> = vec!["/session"];
+    let mut descriptions = serde_json::Map::new();
+    descriptions.insert("/session".into(), json!("list the session modules"));
+    if parts.on("bookmark") {
+        commands.extend(["/bookmark", "/bookmarks"]);
+        descriptions.insert("/bookmark".into(), json!("mark this point in the session"));
+        descriptions.insert("/bookmarks".into(), json!("list session bookmarks"));
+    }
+    if parts.on("session-name") {
+        commands.push("/name");
+        descriptions.insert("/name".into(), json!("name or rename this session"));
+    }
+    if parts.on("share") {
+        commands.push("/share");
+        descriptions.insert("/share".into(), json!("export a session to an HTML file"));
+    }
+    if parts.on("handoff") {
+        commands.push("/handoff");
+        descriptions.insert(
+            "/handoff".into(),
+            json!("write a prompt to continue in a new session"),
+        );
+    }
+    if parts.on("summarize") {
+        commands.push("/summarize");
+        descriptions.insert(
+            "/summarize".into(),
+            json!("summarize the conversation so far"),
+        );
+    }
+    let mut hooks: Vec<&str> = Vec::new();
+    if parts.on("session-name") {
+        hooks.push("prompt/context");
+    }
+    if parts.on("handoff") || parts.on("summarize") {
+        hooks.push("context/build");
+    }
+    let mut capabilities: Vec<&str> = Vec::new();
+    if parts.on("bookmark") || parts.on("session-name") {
+        capabilities.push("host.ask");
+    }
+    if parts.on("handoff") || parts.on("summarize") {
+        capabilities.push("host.turn");
+    }
     json!({
         "name": "session",
         "version": env!("CARGO_PKG_VERSION"),
         "protocol": "2.0",
         "tools": tools,
-        "commands": [
-            "/session", "/bookmark", "/bookmarks", "/name", "/share", "/handoff", "/summarize",
-        ],
-        "command_descriptions": {
-            "/session": "list the session modules",
-            "/bookmark": "mark this point in the session",
-            "/bookmarks": "list session bookmarks",
-            "/name": "name or rename this session",
-            "/share": "export a session to an HTML file",
-            "/handoff": "write a prompt to continue in a new session",
-            "/summarize": "summarize the conversation so far",
-        },
-        "hooks": ["prompt/context", "context/build"],
-        "capabilities": ["host.ask", "host.turn"],
+        "commands": commands,
+        "command_descriptions": descriptions,
+        "hooks": hooks,
+        "capabilities": capabilities,
+        "parts": parts.manifest(PARTS),
     })
 }
 
@@ -150,15 +225,21 @@ fn call_session_name(req: &Value, host: &Host) -> (Option<Value>, bool) {
 
 /// `context/build` chain: handoff then summarize. Both only observe today,
 /// but if one returns `messages` the next sees them as `params.messages`.
-fn context_build(req: &Value, host: &Host) -> Value {
+fn context_build(req: &Value, host: &Host, parts: &parts::Parts) -> Value {
     let mut req = req.clone();
     let mut replaced: Option<Value> = None;
     let link_h = host.handoff_link();
     let link_s = host.summarize_link();
     type Step<'a> = &'a dyn Fn(&Value) -> (Option<Value>, bool);
-    let steps: [Step; 2] = [&|r| handoff::handle_handoff(r, Some(&link_h)), &|r| {
-        summarize::handle_summarize(r, Some(&link_s))
-    }];
+    let hand_off = |r: &Value| handoff::handle_handoff(r, Some(&link_h));
+    let sum_up = |r: &Value| summarize::handle_summarize(r, Some(&link_s));
+    let mut steps: Vec<Step> = Vec::new();
+    if parts.on("handoff") {
+        steps.push(&hand_off);
+    }
+    if parts.on("summarize") {
+        steps.push(&sum_up);
+    }
     for step in steps {
         if let (Some(reply), _) = step(&req)
             && let Some(msgs) = reply.pointer("/result/messages")
@@ -188,7 +269,7 @@ fn session_command() -> String {
     )
 }
 
-fn handle(req: &Value, host: &Host) -> (Option<Value>, bool) {
+fn handle(req: &Value, host: &Host, parts: &parts::Parts) -> (Option<Value>, bool) {
     let id = req.get("id").cloned();
     let method = req.get("method").and_then(Value::as_str).unwrap_or("");
     let params = req.get("params").cloned().unwrap_or(Value::Null);
@@ -196,20 +277,23 @@ fn handle(req: &Value, host: &Host) -> (Option<Value>, bool) {
         return (None, method == "plugin/shutdown");
     };
     let result = match method {
-        "plugin/manifest" => manifest(),
+        "plugin/manifest" => manifest(parts),
         "prompt/context" => {
+            if !parts.on("session-name") {
+                return (Some(json!({ "id": id, "result": {} })), false);
+            }
             let (reply, _) = call_session_name(req, host);
             return (reply, false);
         }
-        "context/build" => context_build(req, host),
+        "context/build" => context_build(req, host, parts),
         "tool/call" => {
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
             match name {
-                "bookmark" => {
+                "bookmark" if parts.on("bookmark") => {
                     let (reply, _) = call_bookmark(req, host);
                     return (reply, false);
                 }
-                "share" => {
+                "share" if parts.on("share") => {
                     let (reply, _) = share::handle_share(req);
                     return (reply, false);
                 }
@@ -225,11 +309,15 @@ fn handle(req: &Value, host: &Host) -> (Option<Value>, bool) {
                         false,
                     );
                 }
-                "/bookmark" | "/bookmarks" => call_bookmark(req, host),
-                "/name" => call_session_name(req, host),
-                "/share" => share::handle_share(req),
-                "/handoff" => handoff::handle_handoff(req, Some(&host.handoff_link())),
-                "/summarize" => summarize::handle_summarize(req, Some(&host.summarize_link())),
+                "/bookmark" | "/bookmarks" if parts.on("bookmark") => call_bookmark(req, host),
+                "/name" if parts.on("session-name") => call_session_name(req, host),
+                "/share" if parts.on("share") => share::handle_share(req),
+                "/handoff" if parts.on("handoff") => {
+                    handoff::handle_handoff(req, Some(&host.handoff_link()))
+                }
+                "/summarize" if parts.on("summarize") => {
+                    summarize::handle_summarize(req, Some(&host.summarize_link()))
+                }
                 _ => {
                     let text = format!("unknown command {name} — try /session");
                     return (Some(json!({ "id": id, "result": { "text": text } })), false);
@@ -247,8 +335,9 @@ fn handle(req: &Value, host: &Host) -> (Option<Value>, bool) {
 }
 
 fn main() -> std::io::Result<()> {
+    let parts = parts::Parts::load("session", PARTS);
     if std::env::args().nth(1).as_deref() == Some("manifest") {
-        println!("{}", manifest());
+        println!("{}", manifest(&parts));
         return Ok(());
     }
     let host = Host {
@@ -283,7 +372,7 @@ fn main() -> std::io::Result<()> {
     });
 
     for req in work_rx {
-        let (reply, exit) = handle(&req, &host);
+        let (reply, exit) = handle(&req, &host, &parts);
         if let Some(reply) = reply {
             let mut o = host.out.lock().expect("stdout");
             writeln!(o, "{reply}")?;
